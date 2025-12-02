@@ -7,9 +7,12 @@ __pycache__/
 env/
 venv/
 ENV/
+*.egg-info/
+
+# PyInstaller
 build/
 dist/
-*.egg-info/
+*.spec
 
 # IDE
 .vscode/
@@ -21,3 +24,7 @@ config.json
 # OS
 .DS_Store
 Thumbs.db
+
+# Logs
+*.log
+debug.log

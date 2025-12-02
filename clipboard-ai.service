@@ -1,0 +1,25 @@
+[Unit]
+Description=Clipboard AI Daemon
+Documentation=https://github.com/yourusername/clipboard-ai
+Requires=clipboard-ai.socket
+After=clipboard-ai.socket
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 %h/.local/bin/clipboard-ai-daemon
+Restart=no
+StandardOutput=null
+StandardError=journal
+
+# Security hardening
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.config/clipboard-ai
+
+# Auto-stop after timeout (managed by daemon itself)
+# The daemon will exit after conversation_timeout_hours
+
+[Install]
+WantedBy=default.target

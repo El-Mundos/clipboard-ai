@@ -1,0 +1,10 @@
+[Unit]
+Description=Clipboard AI Socket
+Documentation=https://github.com/yourusername/clipboard-ai
+
+[Socket]
+ListenStream=/tmp/clipboard-ai-%U.sock
+SocketMode=0600
+
+[Install]
+WantedBy=sockets.target
