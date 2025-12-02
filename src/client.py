@@ -144,16 +144,13 @@ class ClipboardAIClient:
     def handle_new(self) -> int:
         """Handle --new flag (force new conversation)"""
         if not self.is_daemon_running():
-            self.set_clipboard("No active conversation to reset")
             return 0
 
         response = self.send_to_daemon("new")
 
         if response["status"] == "success":
-            self.set_clipboard(response["message"])
             return 0
         else:
-            self.set_clipboard(f"Error: {response['message']}")
             return 1
 
     def handle_status(self) -> int:
