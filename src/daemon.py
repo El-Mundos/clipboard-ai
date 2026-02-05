@@ -2,16 +2,13 @@
 """
 Daemon for clipboard-ai
 Runs in background, maintains chat state, handles socket communication
+Uses platform abstraction for cross-platform support
 """
 
 import json
-import os
-import signal
-import socket
 import sys
 import time
 import threading
-from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -19,18 +16,19 @@ from google import genai
 from google.genai import types, errors
 
 from config import Config
-from state import StateManager, ConversationState, Message
+from state import StateManager, ConversationState
+from platform import get_platform
 
 
 class ClipboardAIDaemon:
     """Main daemon that manages AI chat and socket communication"""
 
     def __init__(self):
+        self._platform = get_platform()
         self.config = Config()
         self.state_manager = StateManager(self.config.CONFIG_DIR)
 
-        # Socket setup
-        self.socket_path = f"/tmp/clipboard-ai-{os.getuid()}.sock"
+        # Socket setup (platform-specific)
         self.socket = None
         self.running = False
 
@@ -343,28 +341,19 @@ class ClipboardAIDaemon:
             self.check_timeout()
 
     def setup_socket(self) -> bool:
-        """Set up Unix domain socket (supports systemd socket activation)"""
-        # Check for systemd socket activation
-        sd_listen_fds = os.environ.get("LISTEN_FDS")
-        if sd_listen_fds and int(sd_listen_fds) > 0:
-            # Use socket passed by systemd
+        """Set up socket using platform abstraction (supports systemd socket activation on Linux)"""
+        # Check for systemd socket activation (Linux only, returns None on Windows)
+        activated_socket = self._platform.check_systemd_socket_activation()
+        if activated_socket:
             self.log("Using systemd socket activation")
-            self.socket = socket.fromfd(3, socket.AF_UNIX, socket.SOCK_STREAM)
+            self.socket = activated_socket
             return True
 
-        # Manual socket creation (for non-systemd usage)
-        # Remove existing socket if it exists
-        if os.path.exists(self.socket_path):
-            try:
-                os.unlink(self.socket_path)
-            except OSError:
-                pass
-
+        # Manual socket creation
         try:
-            self.socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            self.socket.bind(self.socket_path)
-            self.socket.listen(5)
-            self.log(f"Socket listening at {self.socket_path}")
+            self.socket = self._platform.create_server_socket()
+            socket_addr = self._platform.get_socket_address()
+            self.log(f"Socket listening at {socket_addr}")
             return True
         except Exception as e:
             self.log(f"Failed to set up socket: {e}", "ERROR")
@@ -378,17 +367,14 @@ class ClipboardAIDaemon:
         if self.socket:
             self.socket.close()
 
-        if os.path.exists(self.socket_path):
-            try:
-                os.unlink(self.socket_path)
-            except OSError:
-                pass
+        # Platform-specific cleanup (e.g., unlink Unix socket)
+        self._platform.cleanup_socket()
 
         sys.exit(0)
 
     def run(self):
         """Main daemon loop"""
-        self.log("Starting clipboard-ai daemon")
+        self.log(f"Starting clipboard-ai daemon on {self._platform.name}")
 
         # Initialize API
         if not self.initialize_api():
@@ -402,9 +388,8 @@ class ClipboardAIDaemon:
         if not self.setup_socket():
             return 1
 
-        # Set up signal handlers
-        signal.signal(signal.SIGINT, self.shutdown)
-        signal.signal(signal.SIGTERM, self.shutdown)
+        # Set up signal handlers (platform-specific)
+        self._platform.setup_signal_handlers(self.shutdown)
 
         # Start timeout checker thread
         self.running = True

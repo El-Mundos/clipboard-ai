@@ -1,61 +1,44 @@
 #!/usr/bin/env python3
 """
 Client for clipboard-ai
-Communicates with daemon via Unix socket
-Handles clipboard read/write
+Communicates with daemon via platform-specific IPC (Unix socket or TCP)
+Handles clipboard read/write through platform abstraction
 """
 
 import argparse
 import json
-import os
-import socket
-import subprocess
 import sys
 import time
 from pathlib import Path
 
 from config import Config
+from platform import get_platform
 
 
 class ClipboardAIClient:
     """Client that communicates with the daemon"""
 
     def __init__(self):
+        self._platform = get_platform()
         self.config = Config()
-        self.socket_path = f"/tmp/clipboard-ai-{os.getuid()}.sock"
 
     def get_clipboard(self) -> str:
-        """Get clipboard content using wl-paste"""
-        try:
-            result = subprocess.run(
-                ["wl-paste"], capture_output=True, text=True, check=True, timeout=5
-            )
-            return result.stdout
-        except subprocess.CalledProcessError:
-            return ""
-        except subprocess.TimeoutExpired:
-            return ""
-        except FileNotFoundError:
+        """Get clipboard content using platform-specific method"""
+        content = self._platform.get_clipboard()
+        if content == "" and not self._platform.is_daemon_running():
+            # Check if clipboard tool is missing (Linux only)
             self.set_clipboard(
-                "Error: wl-paste not found. Install wl-clipboard package."
+                "Error: Clipboard tool not found. Install wl-clipboard (Linux) or pyperclip (Windows)."
             )
-            return ""
+        return content
 
     def set_clipboard(self, text: str) -> bool:
-        """Set clipboard content using wl-copy"""
-        try:
-            subprocess.run(["wl-copy"], input=text, text=True, check=True, timeout=5)
-            return True
-        except (
-            subprocess.CalledProcessError,
-            subprocess.TimeoutExpired,
-            FileNotFoundError,
-        ):
-            return False
+        """Set clipboard content using platform-specific method"""
+        return self._platform.set_clipboard(text)
 
     def is_daemon_running(self) -> bool:
         """Check if daemon is running"""
-        return os.path.exists(self.socket_path)
+        return self._platform.is_daemon_running()
 
     def start_daemon(self) -> bool:
         """Start the daemon if not running"""
@@ -64,33 +47,25 @@ class ClipboardAIClient:
 
         # Start daemon in background
         daemon_script = Path(__file__).parent / "daemon.py"
+        daemon_command = [sys.executable, str(daemon_script)]
 
-        try:
-            subprocess.Popen(
-                [sys.executable, str(daemon_script)],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True,
-            )
-
-            # Wait for daemon to start (max 5 seconds)
-            for _ in range(50):
-                if self.is_daemon_running():
-                    return True
-                time.sleep(0.1)
-
+        if not self._platform.start_daemon_process(daemon_command):
+            print("Failed to start daemon process", file=sys.stderr)
             return False
-        except Exception as e:
-            print(f"Failed to start daemon: {e}", file=sys.stderr)
-            return False
+
+        # Wait for daemon to start (max 5 seconds)
+        for _ in range(50):
+            if self.is_daemon_running():
+                return True
+            time.sleep(0.1)
+
+        return False
 
     def send_to_daemon(self, action: str, content: str = "") -> dict:
         """Send request to daemon and get response"""
         try:
-            # Connect to daemon
-            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            sock.settimeout(30)  # 30 second timeout
-            sock.connect(self.socket_path)
+            # Connect to daemon using platform-specific socket
+            sock = self._platform.create_client_socket()
 
             # Send request
             request = {"action": action, "content": content}
@@ -103,7 +78,7 @@ class ClipboardAIClient:
             sock.close()
             return response
 
-        except socket.timeout:
+        except TimeoutError:
             return {"status": "error", "message": "Request timed out"}
         except ConnectionRefusedError:
             return {"status": "error", "message": "Daemon not responding"}

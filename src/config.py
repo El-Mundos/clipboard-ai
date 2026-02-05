@@ -5,22 +5,14 @@ Handles config files, directory structure, and prompt loading
 """
 
 import json
-import os
 from pathlib import Path
 from typing import Dict, Optional, Any
+
+from platform import get_platform
 
 
 class Config:
     """Manages clipboard-ai configuration"""
-
-    # Default paths
-    CONFIG_DIR = Path.home() / ".config" / "clipboard-ai"
-    CONFIG_FILE = CONFIG_DIR / "config.json"
-    PROMPTS_DIR = CONFIG_DIR / "prompts"
-    STATE_DIR = CONFIG_DIR / "state"
-    HISTORY_DIR = STATE_DIR / "history"
-    CURRENT_STATE = STATE_DIR / "current.json"
-    DEBUG_LOG = CONFIG_DIR / "debug.log"
 
     # Default configuration
     DEFAULT_CONFIG = {
@@ -37,7 +29,7 @@ class Config:
     # Default prompt
     DEFAULT_PROMPT = {
         "name": "default",
-        "first_message": """You are an AI assistant running through clipboard-ai, a clipboard-based interface on Linux. Here's how you work:
+        "first_message": """You are an AI assistant running through clipboard-ai, a clipboard-based interface. Here's how you work:
 
 - The user copies text to their clipboard and presses a keybind
 - You receive that text and respond
@@ -60,6 +52,17 @@ Respond with ONLY: 'Ready. Paste your query.'""",
     }
 
     def __init__(self):
+        self._platform = get_platform()
+
+        # Set up paths using platform-specific config directory
+        self.CONFIG_DIR = self._platform.get_config_dir()
+        self.CONFIG_FILE = self.CONFIG_DIR / "config.json"
+        self.PROMPTS_DIR = self.CONFIG_DIR / "prompts"
+        self.STATE_DIR = self.CONFIG_DIR / "state"
+        self.HISTORY_DIR = self.STATE_DIR / "history"
+        self.CURRENT_STATE = self.STATE_DIR / "current.json"
+        self.DEBUG_LOG = self.CONFIG_DIR / "debug.log"
+
         self.config: Dict[str, Any] = {}
         self._ensure_structure()
         self.load()
@@ -200,6 +203,6 @@ if __name__ == "__main__":
     print("Testing config system...")
     config = Config()
     print(f"Config loaded: {config}")
-    print(f"Config dir: {Config.CONFIG_DIR}")
+    print(f"Config dir: {config.CONFIG_DIR}")
     print(f"API key configured: {config.is_configured()}")
     print(f"Available prompts: {config.list_prompts()}")

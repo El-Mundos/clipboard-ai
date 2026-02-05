@@ -1,0 +1,179 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install pyinstaller google-genai
+
+      - name: Create entry point
+        run: |
+          cat > src/clipboard_ai.py << 'EOF'
+          #!/usr/bin/env python3
+          """
+          Unified entry point for clipboard-ai
+          Handles both daemon and client mode based on how it's called
+          """
+          import sys
+          import os
+
+          # Determine mode based on argv[0] or first argument
+          binary_name = os.path.basename(sys.argv[0])
+
+          if binary_name == 'clipboard-ai-daemon' or '--daemon' in sys.argv:
+              # Run as daemon
+              if '--daemon' in sys.argv:
+                  sys.argv.remove('--daemon')
+              from daemon import main
+              sys.exit(main())
+          else:
+              # Run as client (default)
+              from client import main
+              sys.exit(main())
+          EOF
+
+      - name: Build Linux binary
+        run: |
+          pyinstaller \
+            --onefile \
+            --name clipboard-ai-linux-x86_64 \
+            --hidden-import=google.genai \
+            --hidden-import=google.genai.types \
+            --hidden-import=google.genai.errors \
+            --exclude-module=pyperclip \
+            --add-data "src/config.py:." \
+            --add-data "src/state.py:." \
+            --add-data "src/daemon.py:." \
+            --add-data "src/client.py:." \
+            --add-data "src/platform:platform" \
+            src/clipboard_ai.py
+
+      - name: Test binary
+        run: |
+          chmod +x dist/clipboard-ai-linux-x86_64
+          ./dist/clipboard-ai-linux-x86_64 --help
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-binary
+          path: dist/clipboard-ai-linux-x86_64
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install pyinstaller google-genai pyperclip
+
+      - name: Create entry point
+        run: |
+          @"
+          #!/usr/bin/env python3
+          import sys
+          import os
+          binary_name = os.path.basename(sys.argv[0])
+          if binary_name == 'clipboard-ai-daemon' or '--daemon' in sys.argv:
+              if '--daemon' in sys.argv:
+                  sys.argv.remove('--daemon')
+              from daemon import main
+              sys.exit(main())
+          else:
+              from client import main
+              sys.exit(main())
+          "@ | Out-File -FilePath src/clipboard_ai.py -Encoding utf8
+
+      - name: Build Windows binary
+        run: |
+          pyinstaller `
+            --onefile `
+            --name clipboard-ai-windows-x86_64 `
+            --hidden-import=google.genai `
+            --hidden-import=google.genai.types `
+            --hidden-import=google.genai.errors `
+            --hidden-import=pyperclip `
+            --add-data "src/config.py;." `
+            --add-data "src/state.py;." `
+            --add-data "src/daemon.py;." `
+            --add-data "src/client.py;." `
+            --add-data "src/platform;platform" `
+            src/clipboard_ai.py
+
+      - name: Test binary
+        run: |
+          .\dist\clipboard-ai-windows-x86_64.exe --help
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-binary
+          path: dist/clipboard-ai-windows-x86_64.exe
+
+  release:
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-binary
+          path: dist/
+
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-binary
+          path: dist/
+
+      - name: Make Linux binary executable
+        run: chmod +x dist/clipboard-ai-linux-x86_64
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            dist/clipboard-ai-linux-x86_64
+            dist/clipboard-ai-windows-x86_64.exe
+          generate_release_notes: true
+          body: |
+            ## Installation
+
+            ### Linux (Wayland)
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/El-Mundos/clipboard-ai/main/install-remote.sh | bash
+            ```
+
+            ### Windows
+            ```powershell
+            irm https://raw.githubusercontent.com/El-Mundos/clipboard-ai/main/install-remote.ps1 | iex
+            ```
+
+            Then configure your API key:
+            ```
+            clipboard-ai --setup
+            ```

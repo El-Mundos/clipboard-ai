@@ -2,8 +2,8 @@
 set -e
 
 # Configuration
-REPO="El-Mundos/clipboard-ai" # UPDATE THIS with your GitHub username
-BINARY_NAME="clipboard-ai"
+REPO="El-Mundos/clipboard-ai"
+BINARY_NAME="clipboard-ai-linux-x86_64"
 INSTALL_DIR="$HOME/.local/bin"
 CONFIG_DIR="$HOME/.config/clipboard-ai"
 SYSTEMD_DIR="$HOME/.config/systemd/user"
@@ -57,7 +57,8 @@ x86_64)
     ARCH="x86_64"
     ;;
 aarch64 | arm64)
-    ARCH="aarch64"
+    echo -e "${YELLOW}⚠️  Note: ARM builds not yet available, using x86_64${NC}"
+    ARCH="x86_64"
     ;;
 *)
     echo -e "${RED}❌ Unsupported architecture: $ARCH${NC}"
@@ -112,13 +113,13 @@ if [ ! -s "$TMP_FILE" ]; then
     exit 1
 fi
 
-# Install binary
+# Install binary (use generic name for user convenience)
 echo "Installing binary..."
-mv "$TMP_FILE" "$INSTALL_DIR/$BINARY_NAME"
-chmod +x "$INSTALL_DIR/$BINARY_NAME"
+mv "$TMP_FILE" "$INSTALL_DIR/clipboard-ai"
+chmod +x "$INSTALL_DIR/clipboard-ai"
 
 # Create daemon symlink
-ln -sf "$BINARY_NAME" "$INSTALL_DIR/${BINARY_NAME}-daemon"
+ln -sf "clipboard-ai" "$INSTALL_DIR/clipboard-ai-daemon"
 
 echo -e "${GREEN}✓ Binary installed to $INSTALL_DIR${NC}"
 
@@ -129,7 +130,7 @@ echo "Installing systemd service files..."
 cat >"$SYSTEMD_DIR/clipboard-ai.socket" <<'EOF'
 [Unit]
 Description=Clipboard AI Socket
-Documentation=https://github.com/yourusername/clipboard-ai
+Documentation=https://github.com/El-Mundos/clipboard-ai
 
 [Socket]
 ListenStream=/tmp/clipboard-ai-%U.sock
@@ -192,7 +193,7 @@ echo -e "${GREEN}Installation Complete!${NC}"
 echo "==================================="
 echo
 echo "Version: $VERSION"
-echo "Binary size: $(du -h "$INSTALL_DIR/$BINARY_NAME" 2>/dev/null | cut -f1 || echo "unknown")"
+echo "Binary size: $(du -h "$INSTALL_DIR/clipboard-ai" 2>/dev/null | cut -f1 || echo "unknown")"
 echo
 echo "Next steps:"
 echo "1. Reload your shell (if needed):"

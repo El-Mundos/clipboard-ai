@@ -2,7 +2,7 @@
 
 Your AI assistant that lives in your clipboard. Copy text, press a keybind, paste the response. That's it.
 
-Built for Linux/Wayland users who prefer keyboards over GUIs.
+Works on **Linux (Wayland)** and **Windows**.
 
 ## What is this?
 
@@ -27,11 +27,17 @@ The conversation continues for 12 hours, so follow-up questions just work.
 
 ## Quick Install
 
+### Linux (Wayland)
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/El-Mundos/clipboard-ai/main/install-remote.sh | bash
 ```
 
-This downloads the latest binary and sets everything up. No Python required.
+### Windows
+
+```powershell
+irm https://raw.githubusercontent.com/El-Mundos/clipboard-ai/main/install-remote.ps1 | iex
+```
 
 Then configure your API key:
 
@@ -39,10 +45,11 @@ Then configure your API key:
 clipboard-ai --setup
 ```
 
-## What you need
+## Requirements
 
-- Linux with Wayland
-- `wl-clipboard` package (probably already installed)
+### Linux
+- Wayland compositor (Hyprland, Sway, etc.)
+- `wl-clipboard` package
 - A Google Gemini API key ([free here](https://aistudio.google.com/apikey))
 
 Install wl-clipboard if needed:
@@ -58,7 +65,14 @@ sudo apt install wl-clipboard
 sudo dnf install wl-clipboard
 ```
 
+### Windows
+- Windows 10 or 11
+- A Google Gemini API key ([free here](https://aistudio.google.com/apikey))
+- AutoHotkey (optional, for keybinds)
+
 ## Setting up your keybind
+
+### Linux (Hyprland, Sway, i3)
 
 Pick a key combo and add it to your window manager config:
 
@@ -87,6 +101,23 @@ bindsym $mod+Shift+v exec clipboard-ai --new
 ```
 
 I like `Super+V` because it's close to `Ctrl+V` for pasting, but pick whatever feels natural.
+
+### Windows (AutoHotkey)
+
+1. Install [AutoHotkey](https://www.autohotkey.com/)
+2. Create a file called `clipboard-ai.ahk`:
+
+```autohotkey
+; Win+V to send to AI
+#v::Run, clipboard-ai, , Hide
+
+; Win+Shift+V for new conversation
+#+v::Run, clipboard-ai --new, , Hide
+```
+
+3. Double-click the file to run it
+4. (Optional) Put it in your Startup folder for auto-run:
+   `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup`
 
 ## Using it
 
@@ -122,7 +153,9 @@ clipboard-ai --reset
 
 ## Custom prompts
 
-You can create different AI personalities for different tasks. Create files in `~/.config/clipboard-ai/prompts/`:
+You can create different AI personalities for different tasks. Create files in your config directory:
+- **Linux**: `~/.config/clipboard-ai/prompts/`
+- **Windows**: `%APPDATA%\clipboard-ai\prompts\`
 
 **writer.json** - for creative writing
 
@@ -173,20 +206,36 @@ cd clipboard-ai
 # Install dependencies
 pip install pyinstaller google-genai
 
-# Build
+# Build (Linux)
 ./build.sh
 
-# Install
+# Build (Windows - run in PowerShell)
+./build.ps1
+
+# Install (Linux only)
 ./install.sh
 ```
 
 ## How it actually works
 
+### Linux
+
 When you press your keybind:
 
-1. The client reads your clipboard
+1. The client reads your clipboard via `wl-paste`
 2. Sends it to a daemon via Unix socket
-3. Systemd starts the daemon if it's not running
+3. Systemd starts the daemon if it's not running (socket activation)
+4. Daemon keeps a Gemini chat session in memory
+5. Response comes back, client puts it in clipboard via `wl-copy`
+6. After 12 hours idle, daemon archives the conversation and exits
+
+### Windows
+
+When you press your keybind:
+
+1. The client reads your clipboard via `pyperclip`
+2. Sends it to a daemon via localhost TCP (port 61472)
+3. Client starts the daemon if it's not running
 4. Daemon keeps a Gemini chat session in memory
 5. Response comes back, client puts it in clipboard
 6. After 12 hours idle, daemon archives the conversation and exits
@@ -195,7 +244,9 @@ This means it's fast (no startup time) but doesn't waste resources when you're n
 
 ## Configuration
 
-Everything lives in `~/.config/clipboard-ai/`:
+Everything lives in your config directory:
+- **Linux**: `~/.config/clipboard-ai/`
+- **Windows**: `%APPDATA%\clipboard-ai\`
 
 ```
 config.json          # Main settings
@@ -225,6 +276,8 @@ Edit `config.json` to change defaults:
 
 ## Troubleshooting
 
+### Linux
+
 **Nothing happens when I press the keybind**
 
 Check if the socket is active:
@@ -239,6 +292,36 @@ If it's not running:
 systemctl --user start clipboard-ai.socket
 ```
 
+**Daemon won't start**
+
+Check the logs:
+
+```bash
+journalctl --user -u clipboard-ai.service -n 50
+```
+
+### Windows
+
+**Nothing happens when I press the keybind**
+
+Make sure AutoHotkey is running (check system tray).
+
+Try running clipboard-ai directly:
+
+```powershell
+clipboard-ai --status
+```
+
+**Daemon port conflict**
+
+If port 61472 is in use, the daemon will fail to start. Check with:
+
+```powershell
+netstat -an | findstr 61472
+```
+
+### Both platforms
+
 **"API key not configured"**
 
 Run the setup:
@@ -252,20 +335,11 @@ clipboard-ai --setup
 Enable debug mode:
 
 ```bash
-# Edit config
-nano ~/.config/clipboard-ai/config.json
-# Set "debug": true
+# Edit config.json and set "debug": true
 
 # Watch logs
-tail -f ~/.config/clipboard-ai/debug.log
-```
-
-**Daemon won't start**
-
-Check the logs:
-
-```bash
-journalctl --user -u clipboard-ai.service -n 50
+# Linux: tail -f ~/.config/clipboard-ai/debug.log
+# Windows: Get-Content "$env:APPDATA\clipboard-ai\debug.log" -Wait
 ```
 
 **Everything's broken**
@@ -274,7 +348,7 @@ Nuclear option:
 
 ```bash
 clipboard-ai --reset
-systemctl --user restart clipboard-ai.socket
+# Then on Linux: systemctl --user restart clipboard-ai.socket
 ```
 
 ## API limits
@@ -299,16 +373,18 @@ Found a bug? Have an idea? Open an issue or PR on [GitHub](https://github.com/El
 Some things I'd like to add:
 
 - More default prompts (translator, summarizer, etc.)
-- X11 clipboard support (currently Wayland only)
+- X11 clipboard support (currently Wayland only on Linux)
 - Token usage tracking
 - Conversation export/import
 - Maybe a TUI for browsing history?
+- ARM64 builds
 
 ## Acknowledgments
 
 - Built with [Google Gemini API](https://ai.google.dev/)
-- Uses `wl-clipboard` for Wayland clipboard access
-- Systemd socket activation makes the daemon lifecycle elegant
+- Uses `wl-clipboard` for Wayland clipboard access (Linux)
+- Uses `pyperclip` for clipboard access (Windows)
+- Systemd socket activation makes the daemon lifecycle elegant (Linux)
 
 ---
 
